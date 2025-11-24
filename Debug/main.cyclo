@@ -1,0 +1,6 @@
+../external/CMSIS/core_cm4.h:1688:22:__NVIC_EnableIRQ	2
+../main.c:16:6:System_init	1
+../main.c:28:6:Gpio_init	1
+../main.c:60:6:Timer2_config	1
+../main.c:72:6:Interrupt_handler	1
+../main.c:77:5:main	1

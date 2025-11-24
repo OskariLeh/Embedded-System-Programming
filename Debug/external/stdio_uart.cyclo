@@ -1,0 +1,4 @@
+../external/CMSIS/core_cm4.h:1777:22:__NVIC_ClearPendingIRQ	2
+../external/stdio_uart.c:22:5:_write	5
+../external/stdio_uart.c:62:5:_read	7
+../external/stdio_uart.c:122:42:init	1

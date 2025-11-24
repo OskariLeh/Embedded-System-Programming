@@ -1,0 +1,5 @@
+"./external/CMSIS/system_stm32f4xx.o"
+"./external/sleep.o"
+"./external/startup.o"
+"./external/stdio_uart.o"
+"./main.o"
