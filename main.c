@@ -10,6 +10,49 @@
 volatile uint8_t flag_MODEL = 0;
 volatile uint8_t flag_CONTROLLER = 0;
 
+// converter model state and matrices
+// state vector x = [i1, u1, i2, u2, i3, u3]^T
+static float x_state[6] = {0};
+
+// A matrix and B vector 
+
+static const float A[6][6] = {
+{0.9652, -0.0172,  0.0057, -0.0058,  0.0052, -0.0251},
+{0.7732,  0.1252,  0.2315, -0.0700,  0.1282,  0.7754},
+{0.8278, -0.7522, -0.0956,  0.3299, -0.4855,  0.3915},
+{0.9948,  0.2655, -0.3848,  0.4212,  0.3927,  0.2899},
+{0.7648, -0.4165, -0.4855, -0.3366, -0.0986,  0.7281},
+{1.1056,  0.7587,  0.1179,  0.0748, -0.2192,  0.1491}
+};
+
+static const float B[6] = {0.0471, 0.0377, 0.0404, 0.0485, 0.0373, 0.0539};
+
+// Compute x_(k+1) = A*x_k + B*U_in
+
+void model_update(float u_in)
+{
+	float x_next[6];
+	for (int i = 0; i < 6; ++i)
+	{
+		float s = 0.0;
+		for (int j = 0; j < 6; ++j)
+		{
+			s += A[i][j] * x_state[j];	
+		}
+		s += B[i] * u_in;
+		x_next[i] = s;
+	}
+	for (int i = 0; i < 6; ++i)
+		{
+			x_state[i] = x_next[i];
+		}
+}
+
+
+
+
+
+
 
 
 void System_init()
@@ -68,8 +111,28 @@ void Timer2_config()
 	NVIC_EnableIRQ(TIM2_IRQn); // enable interrupt request
 }
 
+// IRQHandler
+void Timer2_IRQHandler()
+{
+	if(TIM2->SR & TIM_SR_UIF)
+	{
+		TIM2->SR &= ~TIM_SR_UIF;  // clear update interrupt flag
+
+		static unit32_t tick = 0; // short scheduler action only
+		tick++;
+
+		// set flags for main loop to run model
+		flag_MODEL = 1;
+		if((tick % 10) == 0) flag_CONTROLLER = 1;
+
+
+	}
+}
+
+
 void Interrupt_handler()
 {
+
 
 }
 
@@ -87,10 +150,15 @@ int main()
 	{
 		if(flag_MODEL)
 		{
-
+			flag_MODEL = 0;
+			float u_in = (mode == 2) ? controller_out : 0.0;
+			model_update(u_in);   // run model
 		}
+		
 		if(flag_CONTROLLER)
 		{
+			flag_CONTROLLER = 0;
+			float meas = model_output_u3();  // model output U3
 
 		}
 	}
