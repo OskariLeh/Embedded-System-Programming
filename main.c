@@ -84,10 +84,7 @@ void model_update(float u_in)
 }
 
 
-
-
-
-// Clamp helper keeps controller outputs within allowed range
+// keeps controller outputs within allowed range
 static float clampf(float value, float min_value, float max_value)
 {
 	if (value < min_value) return min_value;
@@ -95,7 +92,7 @@ static float clampf(float value, float min_value, float max_value)
 	return value;
 }
 
-// Initialize PI controller parameters and reset accumulated state
+// Initialize PI controller
 static void pi_init(PIController *pi, float kp, float ki, float Ts, float u_min, float u_max)
 {
 	if (!pi) return;
@@ -108,7 +105,7 @@ static void pi_init(PIController *pi, float kp, float ki, float Ts, float u_min,
 	pi->u_max = u_max;
 }
 
-// Run one PI iteration using trapezoidal integration with anti-windup
+// PI iteration using trapezoidal integration with anti-windup
 static float pi_step(PIController *pi, float reference, float measurement)
 {
 	if (!pi) return 0.0f;
@@ -124,19 +121,19 @@ static float pi_step(PIController *pi, float reference, float measurement)
 	return u_sat;
 }
 
-// Allow other subsystems to adjust proportional gain dynamically
+// adjust proportional gain
 void pi_set_kp(float kp)
 {
 	g_pi.kp = kp;
 }
 
-// Allow other subsystems to adjust integral gain dynamically
+// adjust integral gain
 void pi_set_ki(float ki)
 {
 	g_pi.ki = ki;
 }
 
-// Configure PA5/TIM2 CH1 to output a PWM duty proportional to controller_out
+// PA5/TIM2 CH1 to output a PWM duty proportional to controller_out
 static void pwm_init(void)
 {
 	// configure PA5 as TIM2_CH1 (green LED)
@@ -160,7 +157,7 @@ static void pwm_init(void)
 	TIM2->CCR1 = 0;
 }
 
-// Translate duty ratio (0..1) to CCR1 counts, tracking ARR in case it changes
+// translate duty ratio (0..1) to CCR1 counts
 static void pwm_set_duty(float duty)
 {
 	float clamped = clampf(duty, 0.0f, 1.0f);
@@ -190,12 +187,6 @@ static void controller_subsystem_init(void)
 	controller_out = 0.0f;
 	pwm_set_duty(0.0f);
 }
-
-
-
-
-
-
 
 
 void System_init()
