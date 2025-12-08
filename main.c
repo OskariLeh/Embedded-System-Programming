@@ -5,6 +5,41 @@
 #include <bitwise.h>   // bitwise operation macros
 #include <stm32f4xx.h> // defines hardware registers
 
+#ifndef MODE_MODULATE
+#define MODE_MODULATE 2U
+#endif
+
+// Mode flag supplied by UI logic; determines whether control is active.
+extern volatile uint8_t mode;
+
+// Simple PI controller container used by scheduler.
+typedef struct
+{
+	float kp;
+	float ki;
+	float Ts;
+	float integrator;
+	float prev_error;
+	float u_min;
+	float u_max;
+} PIController;
+
+// Controller and PWM helper prototypes.
+static float clampf(float value, float min_value, float max_value);
+static void pi_init(PIController *pi, float kp, float ki, float Ts, float u_min, float u_max);
+static float pi_step(PIController *pi, float reference, float measurement);
+void pi_set_kp(float kp);
+void pi_set_ki(float ki);
+static void pwm_init(void);
+static void pwm_set_duty(float duty);
+static void controller_subsystem_init(void);
+
+// Global controller state available to other modules (e.g., UI adjustments).
+static PIController g_pi;
+volatile float controller_out = 0.0f;
+volatile float reference_uout = 5.0f;
+static uint32_t pwm_arr = 0;
+static const float TS_CONTROL = 0.010f;
 
 
 volatile uint8_t flag_MODEL = 0;
@@ -49,10 +84,109 @@ void model_update(float u_in)
 }
 
 
+// keeps controller outputs within allowed range
+static float clampf(float value, float min_value, float max_value)
+{
+	if (value < min_value) return min_value;
+	if (value > max_value) return max_value;
+	return value;
+}
 
+// Initialize PI controller
+static void pi_init(PIController *pi, float kp, float ki, float Ts, float u_min, float u_max)
+{
+	if (!pi) return;
+	pi->kp = kp;
+	pi->ki = ki;
+	pi->Ts = Ts;
+	pi->integrator = 0.0f;
+	pi->prev_error = 0.0f;
+	pi->u_min = u_min;
+	pi->u_max = u_max;
+}
 
+// PI iteration using trapezoidal integration with anti-windup
+static float pi_step(PIController *pi, float reference, float measurement)
+{
+	if (!pi) return 0.0f;
+	float error = reference - measurement;
+	pi->integrator += 0.5f * pi->ki * pi->Ts * (error + pi->prev_error);
+	float u = (pi->kp * error) + pi->integrator;
+	float u_sat = clampf(u, pi->u_min, pi->u_max);
+	if (u_sat != u)
+	{
+		pi->integrator = u_sat - (pi->kp * error);
+	}
+	pi->prev_error = error;
+	return u_sat;
+}
 
+// adjust proportional gain
+void pi_set_kp(float kp)
+{
+	g_pi.kp = kp;
+}
 
+// adjust integral gain
+void pi_set_ki(float ki)
+{
+	g_pi.ki = ki;
+}
+
+// PA5/TIM2 CH1 to output a PWM duty proportional to controller_out
+static void pwm_init(void)
+{
+	// configure PA5 as TIM2_CH1 (green LED)
+	GPIOA->MODER &= ~(3U << (5U * 2U));
+	GPIOA->MODER |= (2U << (5U * 2U));
+	GPIOA->AFR[0] &= ~(0xFU << (5U * 4U));
+	GPIOA->AFR[0] |= (1U << (5U * 4U));
+	GPIOA->OTYPER &= ~(1U << 5);
+	GPIOA->OSPEEDR |= (3U << (5U * 2U));
+	GPIOA->PUPDR &= ~(3U << (5U * 2U));
+
+	TIM2->CCMR1 &= ~(TIM_CCMR1_CC1S | TIM_CCMR1_OC1M);
+	TIM2->CCMR1 |= (TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2);
+	TIM2->CCMR1 |= TIM_CCMR1_OC1PE;
+	TIM2->CCER &= ~TIM_CCER_CC1P;
+	TIM2->CCER |= TIM_CCER_CC1E;
+	TIM2->CR1 |= TIM_CR1_ARPE;
+	TIM2->EGR |= TIM_EGR_UG;
+
+	pwm_arr = TIM2->ARR;
+	TIM2->CCR1 = 0;
+}
+
+// translate duty ratio (0..1) to CCR1 counts
+static void pwm_set_duty(float duty)
+{
+	float clamped = clampf(duty, 0.0f, 1.0f);
+	uint32_t arr = TIM2->ARR;
+	if (arr != pwm_arr)
+	{
+		pwm_arr = arr;
+	}
+	if (pwm_arr == 0)
+	{
+		TIM2->CCR1 = 0;
+		return;
+	}
+	uint32_t ccr = (uint32_t)((clamped * (float)pwm_arr) + 0.5f);
+	if (ccr > pwm_arr)
+	{
+		ccr = pwm_arr;
+	}
+	TIM2->CCR1 = ccr;
+}
+
+// Bring up PWM hardware and seed PI controller before scheduler starts
+static void controller_subsystem_init(void)
+{
+	pwm_init();
+	pi_init(&g_pi, 0.1f, 50.0f, TS_CONTROL, 0.0f, 1.0f);
+	controller_out = 0.0f;
+	pwm_set_duty(0.0f);
+}
 
 
 void System_init()
@@ -61,7 +195,7 @@ void System_init()
 	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;// enable timer 2 clock
 
 	// GPIOB and and GPIOC clocks (leds and buttons)
-	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN;
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN;
 
 }
 
@@ -106,19 +240,18 @@ void Timer2_config()
 	TIM2->ARR = 1 << 12; // auto-reload
 	TIM2->DIER |= TIM_DIER_UIE; // enable interrupt
 	TIM2->CR1 |= TIM_CR1_URS; // counter overflow as only event source
-
-	TIM2->CR2 |= TIM_CR1_CEN;
+	TIM2->CR1 |= TIM_CR1_CEN;
 	NVIC_EnableIRQ(TIM2_IRQn); // enable interrupt request
 }
 
 // IRQHandler
-void Timer2_IRQHandler()
+void TIM2_IRQHandler(void)
 {
 	if(TIM2->SR & TIM_SR_UIF)
 	{
 		TIM2->SR &= ~TIM_SR_UIF;  // clear update interrupt flag
 
-		static unit32_t tick = 0; // short scheduler action only
+		static uint32_t tick = 0; // short scheduler action only
 		tick++;
 
 		// set flags for main loop to run model
@@ -143,22 +276,35 @@ int main()
 	System_init();
 	// Buttons and leds
 	Gpio_init();
-	// Timer configuration
+	// Timer configuration drives both scheduler ticks and shared PWM base
 	Timer2_config();
+	controller_subsystem_init();
 
 	while (1)
 	{
 		if(flag_MODEL)
 		{
 			flag_MODEL = 0;
-			float u_in = (mode == 2) ? controller_out : 0.0;
-			model_update(u_in);   // run model
+			float u_in = (mode == MODE_MODULATE) ? controller_out : 0.0f;
+			model_update(u_in);   // run model with controller output when enabled
 		}
 		
 		if(flag_CONTROLLER)
 		{
 			flag_CONTROLLER = 0;
 			float meas = model_output_u3();  // model output U3
+			if(mode == MODE_MODULATE)
+			{
+				// Closed-loop PI: drive measured voltage toward reference and update PWM
+				controller_out = pi_step(&g_pi, reference_uout, meas);
+				pwm_set_duty(controller_out);
+			}
+			else
+			{
+				// Modulation disabled: force zero duty and controller output
+				controller_out = 0.0f;
+				pwm_set_duty(0.0f);
+			}
 
 		}
 	}
