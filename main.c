@@ -11,10 +11,11 @@
 
 extern uint32_t SystemCoreClock; // system clock frequency 
 // convert baud into BRR value
-#define baud(bps) \ (((SystemCoreClock/((bps)*16)) << 4) | ((SystemCoreClock/(bps)) % 16))
+#define baud(bps) \
+	(((SystemCoreClock/((bps)*16)) << 4) | ((SystemCoreClock/(bps)) % 16))
 
 // Mode flag supplied by UI logic; determines whether control is active.
-extern volatile uint8_t mode;
+volatile uint8_t mode;
 
 // Simple PI controller container used by scheduler.
 typedef struct
@@ -223,7 +224,7 @@ void uart_send_str(char *s) {
 // receive single character from UART (blocking)
 char uart_recv() {
 	// wait for a single byte to be received
-	printf("select mode (1, 2, 3): \n")
+	printf("select mode (1, 2, 3): \n");
 	while (!(USART2->SR & USART_SR_RXNE));
 	// return received byte
 	return USART2->DR;
@@ -308,6 +309,10 @@ void Interrupt_handler()
 {
 
 
+}
+static float model_output_u3(void)
+{
+	return x_state[5];
 }
 
 int main()

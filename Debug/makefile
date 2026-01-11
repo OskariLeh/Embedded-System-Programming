@@ -34,34 +34,34 @@ $(wildcard ../makefile.init) \
 $(wildcard ../makefile.targets) \
 
 
-BUILD_ARTIFACT_NAME := conv_project
+BUILD_ARTIFACT_NAME := Embedded-System-Programming
 BUILD_ARTIFACT_EXTENSION := elf
 BUILD_ARTIFACT_PREFIX :=
 BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ARTIFACT_EXTENSION),.$(BUILD_ARTIFACT_EXTENSION),)
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXECUTABLES += \
-conv_project.elf \
+Embedded-System-Programming.elf \
 
 MAP_FILES += \
-conv_project.map \
+Embedded-System-Programming.map \
 
 SIZE_OUTPUT += \
 default.size.stdout \
 
 OBJDUMP_LIST += \
-conv_project.list \
+Embedded-System-Programming.list \
 
 
 # All Target
 all: main-build
 
 # Main-build Target
-main-build: conv_project.elf secondary-outputs
+main-build: Embedded-System-Programming.elf secondary-outputs
 
 # Tool invocations
-conv_project.elf conv_project.map: $(OBJS) $(USER_OBJS) C:\Users\aksel\STM32CubeIDE\project\conv_project\external\linkerscript.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "conv_project.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\aksel\STM32CubeIDE\project\conv_project\external\linkerscript.ld" --specs=nosys.specs -Wl,-Map="conv_project.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Embedded-System-Programming.elf Embedded-System-Programming.map: $(OBJS) $(USER_OBJS) C:\Users\aksel\STM32CubeIDE\real_real_project\Embedded-System-Programming\external\linkerscript.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Embedded-System-Programming.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\aksel\STM32CubeIDE\real_real_project\Embedded-System-Programming\external\linkerscript.ld" --specs=nosys.specs -Wl,-Map="Embedded-System-Programming.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -70,14 +70,14 @@ default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-conv_project.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "conv_project.list"
+Embedded-System-Programming.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "Embedded-System-Programming.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) conv_project.elf conv_project.list conv_project.map default.size.stdout
+	-$(RM) Embedded-System-Programming.elf Embedded-System-Programming.list Embedded-System-Programming.map default.size.stdout
 	-@echo ' '
 
 secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
