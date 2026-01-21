@@ -1,6 +1,3 @@
-/*
-    !!We are using project template from moodle hardware / software tab!!
-*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,23 +41,24 @@ volatile uint8_t flag_CONTROLLER = 0;
 
 // ---------------------- UI semaphore / lockouts ----------------------
 // UART takes semaphore while in CONFIG mode requested via console.
-// Buttons do nothing while UART semaphore reserved. :contentReference[oaicite:6]{index=6}
+// Buttons do nothing while UART semaphore reserved.
 static volatile uint8_t ui_sem_uart = 0;
 
 // Optional timed lockout (recommended in pdf as a possible enhancement):
-// after button action, prevent UART mode/value changes for 5 seconds. :contentReference[oaicite:7]{index=7}
+// after button action, prevent UART mode/value changes for 5 seconds.
 static volatile uint32_t ui_uart_lock_until_ms = 0;
 
 // ---------------------- PI Controller ----------------------
+// Discrete PI controller with trapezoidal integration and anti-windup
 typedef struct
 {
-    float kp;
-    float ki;
-    float Ts;
-    float integrator;
-    float prev_error;
-    float u_min;
-    float u_max;
+    float kp;           // Proportional gain
+    float ki;           // Integral gain
+    float Ts;           // Sampling period [s]
+    float integrator;   // Integrator state
+    float prev_error;   // Previous error (for trapezoidal integration)
+    float u_min;        // Output lower saturation limit
+    float u_max;        // Output upper saturation limit
 } PIController;
 
 static float clampf(float value, float min_value, float max_value);
@@ -82,7 +80,9 @@ volatile float g_uout = 0.0f;
 volatile float g_pwm_duty = 0.0f;
 
 // ---------------------- Converter model ----------------------
-// state vector x = [i1, u1, i2, u2, i3, u3]^T
+// Discrete state-space model: x[k+1] = A*x[k] + B*u[k]
+// State vector x = [i1, u1, i2, u2, i3, u3]^T
+// Output of interest: u3 = x[5] (voltage at third stage)
 static float x_state[6] = {0};
 
 static const float A[6][6] = {
@@ -96,6 +96,8 @@ static const float A[6][6] = {
 
 static const float B[6] = {0.0471, 0.0377, 0.0404, 0.0485, 0.0373, 0.0539};
 
+// Advance the converter model by one time step
+// u_in: control input (clamped to valid range before calling)
 void model_update(float u_in)
 {
     float x_next[6];
@@ -115,21 +117,21 @@ void model_update(float u_in)
     }
 }
 
-// member 2 output placeholder for testing
+// Returns the model output voltage u3 (used as feedback for PI controller)
+// Weak attribute allows override for unit testing
 __attribute__((weak)) float model_output_u3(void)
 {
-    return x_state[5]; // u3
+    return x_state[5];
 }
 
 // ---------------------- UART (USART2) non-blocking: IRQ + ring buffers ----------------------
-// Commands (newline-terminated):
-//   help
-//   status
-//   mode <config|idle|mod|0|1|2>
-//   kp <float>        (config mode)
-//   ki <float>        (config mode)
-//   ref <float>       (modulating mode)
-// Semaphore rule: if UART requests CONFIG, it must take semaphore and release when leaving. :contentReference[oaicite:8]{index=8}
+// Serial console interface at 115200 baud. Commands (newline-terminated):
+//   help                              - Show available commands
+//   status                            - Print current system state
+//   mode <config|idle|mod|0|1|2>      - Change operating mode
+//   kp <float>                        - Set Kp (config mode only)
+//   ki <float>                        - Set Ki (config mode only)
+//   ref <float>                       - Set output reference (mod mode only)
 
 #define UART_RX_BUF_SZ 128U
 #define UART_TX_BUF_SZ 256U
@@ -217,10 +219,11 @@ void USART2_IRQHandler(void)
 }
 
 // ---------------------- Buttons (EXTI) ----------------------
-#define BTN1_PC5 (1U << 0) // mode select
-#define BTN2_PC6 (1U << 1) // select param (Kp/Ki) in config
-#define BTN3_PC8 (1U << 2) // decrease
-#define BTN4_PC9 (1U << 3) // increase
+// Button flags set by EXTI ISR, cleared by main loop after processing
+#define BTN1_PC5 (1U << 0)  // Cycle through modes: CONFIG -> IDLE -> MOD
+#define BTN2_PC6 (1U << 1)  // Toggle selected parameter (Kp/Ki) in CONFIG mode
+#define BTN3_PC8 (1U << 2)  // Decrease selected parameter or reference
+#define BTN4_PC9 (1U << 3)  // Increase selected parameter or reference
 
 static volatile uint8_t g_btn_flags = 0;
 
@@ -428,10 +431,10 @@ void Gpio_init(void)
 static inline void led_pb10_set(int on) { if (on) GPIOB->ODR |= (1U<<10); else GPIOB->ODR &= ~(1U<<10); }
 static inline void led_pb4_set (int on) { if (on) GPIOB->ODR |= (1U<<4 ); else GPIOB->ODR &= ~(1U<<4 ); }
 
-// Mode indication:
-// - CONFIG: blink PB10 fast (2 Hz)
-// - IDLE:   blink PB4 slow (1 Hz)
-// - MOD:    PB10/PB4 off, PB5 PWM brightness tracks controller duty
+// Update LED indicators based on current operating mode:
+// - CONFIG:   PB10 blinks at 2 Hz (250 ms on/off)
+// - IDLE:     PB4 blinks at 1 Hz (500 ms on/off)
+// - MODULATE: PB10/PB4 off, PB5 (PWM) brightness reflects controller output
 static void ui_update_leds(void)
 {
     if (mode == MODE_CONFIG) {
@@ -449,7 +452,8 @@ static void ui_update_leds(void)
     }
 }
 
-// ---------------------- TIM2: 1ms tick + PWM base ----------------------
+// ---------------------- TIM2: System tick (1 kHz) ----------------------
+// Generates 1 ms interrupts for timing, model updates, and controller scheduling
 void Timer2_config(void)
 {
     // Configure TIM2 update to 1 kHz (1ms). Timer clock depends on APB1 prescaler.
@@ -561,7 +565,7 @@ static void handle_command(char *line)
 
         mode = new_mode;
 
-        // Semaphore rule: UART takes semaphore if it requests CONFIG and releases when leaving. :contentReference[oaicite:9]{index=9}
+        // Take/release semaphore based on new mode
         if (mode == MODE_CONFIG) ui_sem_uart = 1;
         else ui_sem_uart = 0;
 
@@ -617,7 +621,7 @@ static void handle_buttons(void)
     if (!flags) return;
     g_btn_flags = 0;
 
-    // Buttons should not do anything when UART semaphore reserved. :contentReference[oaicite:10]{index=10}
+    // Ignore buttons while UART holds the semaphore (is in CONFIG mode)
     if (ui_sem_uart) return;
 
     // BTN1: cycle mode
@@ -761,7 +765,7 @@ int main(void)
             }
         }
 
-        // Rate-limited status print (0.5 s) to avoid console overflow :contentReference[oaicite:11]{index=11}
+        // Periodic status output every 500 ms
         if ((g_ms - last_status_ms) >= 500U)
         {
             last_status_ms = g_ms;
