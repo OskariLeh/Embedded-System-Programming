@@ -660,7 +660,7 @@ static void handle_buttons(void)
                 g_pi.kp += inc * 0.01f;
                 if (g_pi.kp < 0.0f) g_pi.kp = 0.0f;
             } else {
-                g_pi.ki += inc * 1.0f;
+                g_pi.ki += inc * 0.01f;
                 if (g_pi.ki < 0.0f) g_pi.ki = 0.0f;
             }
             uart_write_str("BTN param change\r\n");
@@ -765,8 +765,8 @@ int main(void)
             }
         }
 
-        // Periodic status output every 500 ms
-        if ((g_ms - last_status_ms) >= 500U)
+        // Periodic status output every 2000 ms
+        if ((g_ms - last_status_ms) >= 2000U)
         {
             last_status_ms = g_ms;
             print_status();
